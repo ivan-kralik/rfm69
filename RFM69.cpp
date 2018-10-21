@@ -8,8 +8,12 @@ RFM69::RFM69(uint8_t dio0_pin, uint8_t ss_pin, uint8_t rst_pin):m_dio0_pin(dio0_
   ;
 }
 
-void RFM69::begin()
+void RFM69::begin(uint8_t network_id, uint8_t node_id, uint8_t channel)
 {
+  m_network_id = network_id;
+  m_node_id = node_id;
+  m_channel = channel;
+  
   pinMode(m_dio0_pin, INPUT);
   pinMode(m_ss_pin, OUTPUT);
   pinMode(m_rst_pin, OUTPUT);
@@ -30,13 +34,12 @@ void RFM69::begin()
     m_ready = true;
   }
   
-  setChannel(m_channel);
-  
   DEBUGPRINTLN1("Begin RFM69 OSC calibration");
   calibrateOsc();
   DEBUGPRINTLN1("Done RFM69 OSC calibration");
-
-  //writeReg(RFM69_REG_LISTEN_1, 0x92);
+  
+  setChannel(m_channel);
+  
   writeReg(RFM69_REG_LISTEN_1, 0x90);
   writeReg(RFM69_REG_LISTEN_2, 0xF5);
   writeReg(RFM69_REG_LISTEN_3, 0x28);
@@ -46,15 +49,11 @@ void RFM69::begin()
   writeReg(RFM69_REG_FIFO_THRESH, 0x8F);
   writeReg(RFM69_REG_PAYLOAD_LENGTH, RFM69_MAX_PACKET_LENGTH);
   writeReg(RFM69_REG_RSSI_THRESH, ((uint8_t) -m_rssi_threshold) * 2);
+  writeReg(RFM69_REG_NODE_ADRS, m_node_id);
   writeReg(RFM69_REG_BROADCAST_ADRS, getBroadcastId());
   writeReg(RFM69_REG_SYNC_CONFIG, 0x80);
   writeReg(RFM69_REG_SYNC_VALUE_1, m_network_id);
   writeReg(RFM69_REG_TEST_DAGC, 0x30);
-
-  randomSeed(analogRead(0));
-  m_seq_num = random(1, 256);
-
-  Serial.println(m_seq_num);
 }
 
 void RFM69::updateRssi()
@@ -150,21 +149,9 @@ void RFM69::waitForSend() {
   }
 }
 
-void RFM69::setNetworkId(uint8_t network_id)
-{
-  m_network_id = network_id;
-  writeReg(RFM69_REG_SYNC_VALUE_1, m_network_id);
-}
-
 uint8_t RFM69::getNetworkId()
 {
   return m_network_id;
-}
-
-void RFM69::setNodeId(uint8_t node_id)
-{
-  m_node_id = node_id;
-  writeReg(RFM69_REG_NODE_ADRS, node_id);
 }
 
 uint8_t RFM69::getNodeId()
@@ -204,7 +191,7 @@ void RFM69::sendMessage(uint8_t recipient, uint8_t * buffer, uint8_t len)
     m_packet_buffer[i] = buffer[i];
   }
 
-  setPayloadReadyDio0Iterrupt();
+  setPayloadReadyDio0Interrupt();
   setMode(RFM69_MODE_RX);
   
   DEBUGPRINTLN1("Waiting for channel to be free");
@@ -264,7 +251,7 @@ void RFM69::beginTransmission()
   }
       
   setMode(RFM69_MODE_TX);
-  setPacketSentDio0Iterrupt();
+  setPacketSentDio0Interrupt();
 
   m_tx_success = false;
   m_tx_start = millis();
@@ -279,7 +266,7 @@ void RFM69::endTransmission()
 {
   setMode(RFM69_MODE_STBY);
   disableHighPower();
-  setPayloadReadyDio0Iterrupt();
+  setPayloadReadyDio0Interrupt();
 
   if (m_tx_success) {
     DEBUGPRINTLN1("Transmission successful");
@@ -336,7 +323,7 @@ void RFM69::restoreDefaultMode()
   } else if (m_default_mode == RFM69_RECEIVE) {
     DEBUGPRINTLN1("Receiving");
 
-    setPayloadReadyDio0Iterrupt();
+    setPayloadReadyDio0Interrupt();
     setMode(RFM69_MODE_RX);
 
     m_state = RECV;
@@ -345,7 +332,7 @@ void RFM69::restoreDefaultMode()
   
     setMode(RFM69_MODE_STBY);
     waitForModeReady();
-    setPayloadReadyDio0Iterrupt();
+    setPayloadReadyDio0Interrupt();
     writeReg(RFM69_REG_MODE, RFM69_MODE_STBY_LISTEN);
 
     m_state = RECV;
@@ -428,17 +415,17 @@ void RFM69::setFrequency(uint32_t frequency)
   writeReg(RFM69_REG_FRF_LSB, (uint8_t) (frf));
 }
 
-void RFM69::setPacketSentDio0Iterrupt()
+void RFM69::setPacketSentDio0Interrupt()
 {
   writeReg(RFM69_REG_DIO_MAPPING_1, 0x00);
 }
 
-void RFM69::setPayloadReadyDio0Iterrupt()
+void RFM69::setPayloadReadyDio0Interrupt()
 {
   writeReg(RFM69_REG_DIO_MAPPING_1, 0x40);
 }
 
-void RFM69::setRssiDio0Iterrupt()
+void RFM69::setRssiDio0Interrupt()
 {
   writeReg(RFM69_REG_DIO_MAPPING_1, 0xC0);
 }

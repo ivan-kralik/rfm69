@@ -76,15 +76,12 @@ class RFM69
 
   RFM69(uint8_t dio0_pin, uint8_t ss_pin, uint8_t rst_pin);
   
-  void begin();
+  void begin(uint8_t network_id, uint8_t node_id, uint8_t channel);
   void update();
   
-  void setNetworkId(uint8_t network_id);
   uint8_t getNetworkId();
-  void setNodeId(uint8_t node_id);
   uint8_t getNodeId();
   uint8_t getBroadcastId();
-  void setChannel(uint8_t channel);
   void setHighPower(bool high_power = true);
   bool isHighPower();
   void setReceiveHandler(RFM69_receive_handler handler);
@@ -97,6 +94,7 @@ class RFM69
   private:
   
   void reset();
+  void setChannel(uint8_t channel);
   void setFrequency(uint32_t frequency);
   void calibrateOsc();
   void setMode(uint8_t mode);
@@ -105,9 +103,9 @@ class RFM69
   uint8_t readReg(uint8_t addr);
   void select();
   void unselect();
-  void setPacketSentDio0Iterrupt();
-  void setPayloadReadyDio0Iterrupt();
-  void setRssiDio0Iterrupt();
+  void setPacketSentDio0Interrupt();
+  void setPayloadReadyDio0Interrupt();
+  void setRssiDio0Interrupt();
   void sendQueueWriteCommand();
   void sendQueueReadCommand();
   void enableHighPower();
