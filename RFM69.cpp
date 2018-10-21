@@ -40,7 +40,7 @@ void RFM69::begin(uint8_t network_id, uint8_t node_id, uint8_t channel)
   
   setChannel(m_channel);
   
-  writeReg(RFM69_REG_LISTEN_1, 0x90);
+  writeReg(RFM69_REG_LISTEN_1, 0x94);
   writeReg(RFM69_REG_LISTEN_2, 0xF5);
   writeReg(RFM69_REG_LISTEN_3, 0x28);
   writeReg(RFM69_REG_RX_TIMEOUT_2, 0x40);
