@@ -5,7 +5,11 @@
 
 RFM69::RFM69(uint8_t dio0_pin, uint8_t ss_pin, uint8_t rst_pin):m_dio0_pin(dio0_pin),m_ss_pin(ss_pin),m_rst_pin(rst_pin)
 {
-  ;
+  pinMode(m_dio0_pin, INPUT);
+  pinMode(m_ss_pin, OUTPUT);
+  pinMode(m_rst_pin, OUTPUT);
+  digitalWrite(m_ss_pin, HIGH);
+  digitalWrite(m_rst_pin, LOW);
 }
 
 void RFM69::begin(uint8_t network_id, uint8_t node_id, uint8_t channel)
@@ -13,30 +17,14 @@ void RFM69::begin(uint8_t network_id, uint8_t node_id, uint8_t channel)
   m_network_id = network_id;
   m_node_id = node_id;
   m_channel = channel;
-  
-  pinMode(m_dio0_pin, INPUT);
-  pinMode(m_ss_pin, OUTPUT);
-  pinMode(m_rst_pin, OUTPUT);
-  digitalWrite(m_ss_pin, HIGH);
-  digitalWrite(m_rst_pin, LOW);
-
-  SPI.begin();
-
-  DEBUGPRINTLN1("Resetting RFM69 module");
-  
-  reset();
 
   if (getMode() != RFM69_MODE_STBY) {
-    DEBUGPRINTLN1("RFM69 module not present or wired wrong");
+    DEBUGPRINTLN1("RFM69 ERROR");
 
     return;
   } else {
     m_ready = true;
   }
-  
-  DEBUGPRINTLN1("Begin RFM69 OSC calibration");
-  calibrateOsc();
-  DEBUGPRINTLN1("Done RFM69 OSC calibration");
   
   setChannel(m_channel);
   
@@ -70,7 +58,7 @@ void RFM69::update()
   if (m_state == SEND_LBT && isModeReady()) {
     if (isChannelFree()) {
       beginTransmission();
-      DEBUGPRINTLN1("Transmitting message");
+      DEBUGPRINTLN1("MSGTX");
       transmitMessage();
       m_state = SEND_WAIT;
     }
@@ -81,7 +69,7 @@ void RFM69::update()
       restoreDefaultMode();
     } else {
       setMode(RFM69_MODE_RX);
-      DEBUGPRINTLN1("Awaiting ack");
+      DEBUGPRINTLN1("ACK_W");
       m_ack_wait_start = millis();
       m_state = SEND_WAIT_ACK;
     }
@@ -91,22 +79,20 @@ void RFM69::update()
     receivePacket(m_ack_buffer, &ackLength, sizeof(m_ack_buffer), &rssi);
 
     if (m_ack_buffer[4] == m_send_seq_num) {
-      DEBUGPRINTLN1("Ack received");
+      DEBUGPRINTLN1("ACK_OK");
       restoreDefaultMode();
     }
-  } else if (m_state == SEND_WAIT_ACK && millis() - m_ack_wait_start > 5) {
+  } else if (m_state == SEND_WAIT_ACK && millis() - m_ack_wait_start > 6) {
     if (m_send_retries > 0) {
-      updateRssi();
-
-      if (getRssi() <= m_rssi_threshold) {
+      if (isRssiBelowThreshold()) {
         beginTransmission();
-        DEBUGPRINTLN1("Re-transmitting message");
+        DEBUGPRINTLN1("MSGTX-R");
         transmitMessage();
         m_send_retries--;
         m_state = SEND_WAIT;
       }
     } else {
-      DEBUGPRINTLN1("Ack not received");
+      DEBUGPRINTLN1("ACK_NOK");
       restoreDefaultMode();
     }
   } else if (m_state == ACK_WAIT && isTransmissionFinished()) {
@@ -127,22 +113,24 @@ void RFM69::update()
       m_ack_seq_num = m_packet_buffer[3];
       
       beginTransmission();
-      DEBUGPRINTLN1("Packet received, transmitting ack");
+      DEBUGPRINTLN1("MSG_RECV_ACK");
       transmitAck();
       m_state = ACK_WAIT;
     } else {
-      DEBUGPRINTLN1("Packet received");
+      DEBUGPRINTLN1("MSG_RECV");
       doReceiveCallback();
       restoreDefaultMode();
     }
   }
 }
 
-bool RFM69::isSending() {
+bool RFM69::isSending()
+{
   return m_state == SEND_LBT || m_state == SEND_WAIT || m_state == SEND_WAIT_ACK;
 }
 
-void RFM69::waitForSend() {
+void RFM69::waitForSend()
+{
   while (isSending()) {
     update();
     yield();
@@ -194,7 +182,7 @@ void RFM69::sendMessage(uint8_t recipient, uint8_t * buffer, uint8_t len)
   setPayloadReadyDio0Interrupt();
   setMode(RFM69_MODE_RX);
   
-  DEBUGPRINTLN1("Waiting for channel to be free");
+  DEBUGPRINTLN1("LBT");
 
   m_state = SEND_LBT;
 }
@@ -211,6 +199,9 @@ void RFM69::transmitAck()
   SPI.transfer(m_ack_seq_num);
   
   unselect();
+  
+  // Exit mode from AutoModes
+  setMode(RFM69_MODE_STBY);
 }
 
 void RFM69::transmitMessage()
@@ -236,10 +227,13 @@ bool RFM69::isChannelFree()
   if (isPayloadReady()) {
     writeReg(RFM69_REG_PACKET_CONFIG_2, readReg(RFM69_REG_PACKET_CONFIG_2) | 0x04);
   }
-    
-  updateRssi();
-    
-  return getRssi() <= m_rssi_threshold;
+  
+  return isRssiBelowThreshold();
+}
+
+bool RFM69::isRssiBelowThreshold()
+{
+  return (readReg(RFM69_REG_IRQ_FLAGS_1) & 0x08) == 0;
 }
 
 void RFM69::beginTransmission()
@@ -251,6 +245,7 @@ void RFM69::beginTransmission()
   }
       
   setMode(RFM69_MODE_TX);
+  writeReg(RFM69_REG_AUTO_MODES, 0x3B);
   setPacketSentDio0Interrupt();
 
   m_tx_success = false;
@@ -265,11 +260,12 @@ bool RFM69::isTransmissionFinished()
 void RFM69::endTransmission()
 {
   setMode(RFM69_MODE_STBY);
+  writeReg(RFM69_REG_AUTO_MODES, 0x00);
   disableHighPower();
   setPayloadReadyDio0Interrupt();
 
   if (m_tx_success) {
-    DEBUGPRINTLN1("Transmission successful");
+    DEBUGPRINTLN1("TX_OK");
   }
 }
 
@@ -317,23 +313,23 @@ void RFM69::listen()
 void RFM69::restoreDefaultMode()
 {
   if (m_default_mode == RFM69_STANDBY) {
-    DEBUGPRINTLN1("Standby");
+    DEBUGPRINTLN1("STBY");
     
     setMode(RFM69_MODE_STBY);
   } else if (m_default_mode == RFM69_RECEIVE) {
-    DEBUGPRINTLN1("Receiving");
+    DEBUGPRINTLN1("RECV");
 
     setPayloadReadyDio0Interrupt();
     setMode(RFM69_MODE_RX);
 
     m_state = RECV;
   } else if (m_default_mode == RFM69_LISTEN) {
-    DEBUGPRINTLN1("Listening");
+    DEBUGPRINTLN1("LISTEN");
   
     setMode(RFM69_MODE_STBY);
     waitForModeReady();
     setPayloadReadyDio0Interrupt();
-    writeReg(RFM69_REG_MODE, RFM69_MODE_STBY_LISTEN);
+    writeReg(RFM69_REG_MODE, RFM69_MODE_SLEEP_LISTEN);
 
     m_state = RECV;
   }
@@ -380,7 +376,7 @@ void RFM69::setChannel(uint8_t channel)
 void RFM69::calibrateOsc()
 { 
   writeReg(RFM69_REG_OSC_1, 0x00);
-  while (readReg(RFM69_REG_OSC_1) & 0x40 != 0x40);
+  while ((readReg(RFM69_REG_OSC_1) & 0x40) != 0x40);
 }
 
 void RFM69::setMode(uint8_t mode)
@@ -395,6 +391,8 @@ uint8_t RFM69::getMode()
 
 void RFM69::reset()
 { 
+  DEBUGPRINTLN1("RFM69RST");
+  
   digitalWrite(m_rst_pin, HIGH);
   delayMicroseconds(200);
   digitalWrite(m_rst_pin, LOW);
@@ -495,19 +493,12 @@ void RFM69::writeReg(uint8_t addr, uint8_t value)
 
 void RFM69::select()
 {
-  SPI.setDataMode(SPI_MODE0);
-  SPI.setBitOrder(MSBFIRST);
-  
-  #ifdef __AVR__
-  SPI.setClockDivider(SPI_CLOCK_DIV4);
-  #else
-  SPI.setClockDivider(SPI_CLOCK_DIV16);
-  #endif
-  
+  SPI.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
   digitalWrite(m_ss_pin, LOW);
 }
 
 void RFM69::unselect()
 {
   digitalWrite(m_ss_pin, HIGH);
+  SPI.endTransaction();
 }

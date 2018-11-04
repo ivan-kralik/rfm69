@@ -14,7 +14,7 @@
 #endif // RFM69_MAX_PACKET_LENGTH
 
 #define RFM69_HISTORY_SIZE 3
-#define DEBUGLEVEL 1
+#define DEBUGLEVEL 0
 
 typedef void (*RFM69_receive_handler)(uint8_t sender, int8_t rssi, uint8_t * packet, uint8_t len);
 enum RFM69_STATE { STBY, RECV, ACK_WAIT, SEND_LBT, SEND_WAIT, SEND_WAIT_ACK };
@@ -90,10 +90,10 @@ class RFM69
   void waitForSend();
   void receive();
   void listen();
+  void reset();
   
   private:
   
-  void reset();
   void setChannel(uint8_t channel);
   void setFrequency(uint32_t frequency);
   void calibrateOsc();
@@ -120,6 +120,7 @@ class RFM69
   bool isChannelFree();
   void beginTransmission();
   bool isTransmissionFinished();
+  bool isRssiBelowThreshold();
   void endTransmission();
   void receivePacket(uint8_t * buffer, uint8_t * length, uint8_t maxLength, int8_t * rssi);
   void doReceiveCallback();
